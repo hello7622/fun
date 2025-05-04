@@ -1,14 +1,19 @@
+# 撤销所有已暂存的修改
+git reset
+
 # 添加所有文件到暂存区
 git add .
 
+message="$*"
+
 # 检查是否输入commit message
-if [ -z "$1" ]; then
+if [ -z "$message" ]; then
     echo "commit message ?"
     exit 0
 fi
 
 # 提交修改
-git commit -m $1
+git commit -m "$message"
 
 # 推送到远端
 git push origin main
