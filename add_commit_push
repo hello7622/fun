@@ -1,0 +1,14 @@
+# 添加所有文件到暂存区
+git add .
+
+# 检查是否输入commit message
+if [ -z "$1" ]; then
+    echo "commit message ?"
+    exit 0
+fi
+
+# 提交修改
+git commit -m $1
+
+# 推送到远端
+git push origin main
