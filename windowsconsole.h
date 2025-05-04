@@ -3,7 +3,7 @@
 
 enum Color 
 {
-	Black,
+	Black = 0,
 	DarkBlue,
 	DarkGreen,
 	GrayBlue,
