@@ -16,7 +16,7 @@ import sys
 # ---------- 文件内容模板 ----------
 
 FILES = {
-    # 相对路径: 文件内容
+    # ---------- app ----------
     "app/MainWindow.h": '''#pragma once
 
 #include <QMainWindow>
@@ -41,20 +41,142 @@ MainWindow::MainWindow(QWidget *parent)
 }
 ''',
 
+    # ---------- loglib ----------
+    "loglib/CMakeLists.txt": '''cmake_minimum_required(VERSION 3.16)
+project(loglib LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library(loglib STATIC
+    src/Log.cpp
+)
+
+target_include_directories(loglib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(loglib
+    PUBLIC
+        spdlog::spdlog
+    PRIVATE
+        Qt5::Core
+)
+''',
+
+    "loglib/include/loglib/Log.h": '''#pragma once
+
+#include <string>
+
+class Log
+{
+public:
+    enum class Level { Trace, Debug, Info, Warn, Error, Critical };
+
+    Log() = delete;
+
+    static void Init(const std::string &appName);
+    static void Shutdown();
+    static void SetLevel(Level level);
+
+    static void Trace(const std::string &msg);
+    static void Debug(const std::string &msg);
+    static void Info(const std::string &msg);
+    static void Warn(const std::string &msg);
+    static void Error(const std::string &msg);
+    static void Critical(const std::string &msg);
+};
+''',
+
+    "loglib/src/Log.cpp": '''#include "loglib/Log.h"
+
+#include <QStandardPaths>
+#include <QDir>
+#include <QCoreApplication>
+
+#include <spdlog/spdlog.h>
+#include <spdlog/async.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+
+namespace 
+{
+std::shared_ptr<spdlog::logger> s_logger;
+
+spdlog::level::level_enum ToSpdlog(Log::Level level) 
+{
+    switch (level) 
+    {
+    case Log::Level::Trace:    return spdlog::level::trace;
+    case Log::Level::Debug:    return spdlog::level::debug;
+    case Log::Level::Info:     return spdlog::level::info;
+    case Log::Level::Warn:     return spdlog::level::warn;
+    case Log::Level::Error:    return spdlog::level::err;
+    case Log::Level::Critical: return spdlog::level::critical;
+    }
+    return spdlog::level::info;
+}
+}
+
+void Log::Init(const std::string &appName)
+{
+    if (s_logger) return;
+
+    const QString qName = QString::fromStdString(appName);
+    QCoreApplication::setApplicationName(qName);
+
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/log";
+    QDir().mkpath(dir);
+
+    const QString file = dir + "/" + qName + ".log";
+
+    spdlog::init_thread_pool(8192, 1);
+
+    s_logger = spdlog::create_async<spdlog::sinks::rotating_file_sink_mt>(
+        appName, file.toStdString(), 1024 * 1024 * 5, 3);
+
+    s_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+    s_logger->set_level(spdlog::level::debug);
+    s_logger->flush_on(spdlog::level::warn);
+
+    spdlog::set_default_logger(s_logger);
+}
+
+void Log::Shutdown()
+{
+    if (!s_logger) return;
+    spdlog::shutdown();
+    s_logger.reset();
+}
+
+void Log::SetLevel(Level level)
+{
+    if (s_logger) s_logger->set_level(ToSpdlog(level));
+}
+
+void Log::Trace(const std::string &msg)    { if (s_logger) s_logger->trace(msg); }
+void Log::Debug(const std::string &msg)    { if (s_logger) s_logger->debug(msg); }
+void Log::Info(const std::string &msg)     { if (s_logger) s_logger->info(msg); }
+void Log::Warn(const std::string &msg)     { if (s_logger) s_logger->warn(msg); }
+void Log::Error(const std::string &msg)    { if (s_logger) s_logger->error(msg); }
+void Log::Critical(const std::string &msg) { if (s_logger) s_logger->critical(msg); }
+''',
+
+    # ---------- translations ----------
     "translations/zh_CN.ts": '''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
-<TS version="2.1">
+<TS version="2.1" language="zh_CN">
 <context>
     <name>MainWindow</name>
     <message>
         <location filename="../app/MainWindow.cpp" line="6"/>
         <source>MainWindow</source>
-        <translation type="finished">主窗口</translation>
+        <translation>主窗口</translation>
     </message>
 </context>
 </TS>
 ''',
 
+    # ---------- 根目录 ----------
     "build.py": '''#!/usr/bin/env python3
 import os
 import subprocess
@@ -86,6 +208,17 @@ project(${CURRENT_FOLDER_NAME} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.15.0      
+    GIT_SHALLOW    TRUE          
+)
+
+FetchContent_MakeAvailable(spdlog)
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
@@ -101,6 +234,10 @@ add_executable(${CMAKE_PROJECT_NAME}
     resources.qrc
 )
 
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    APP_NAME="${CMAKE_PROJECT_NAME}"
+)
+
 set(TS_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/translations/zh_CN.ts
 )
@@ -109,6 +246,8 @@ qt5_create_translation(QM_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${TS_FILES}
 )
+
+add_subdirectory(loglib)
 
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -128,6 +267,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE 
+    loglib
     Qt5::Widgets
 )
 ''',
@@ -135,10 +275,14 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     "main.cpp": '''#include <QApplication>
 #include <QTranslator>
 #include "app/MainWindow.h"
+#include "loglib/Log.h"
 
 int main(int argc, char *argv[]) 
 {
     QApplication app(argc, argv);
+
+    Log::Init(APP_NAME);
+    Log::Info("Application started.");
 
     QString locale = QLocale::system().name();   // 例如 "zh_CN"、"en_US"
     QString qmPath = QCoreApplication::applicationDirPath() + "/translations/" + locale + ".qm";
@@ -151,7 +295,12 @@ int main(int argc, char *argv[])
 
     MainWindow window;
     window.show();
-    return app.exec();
+
+    int ret = app.exec();
+
+    Log::Info("Application exited with code: " + std::to_string(ret));
+    Log::Shutdown();
+    return ret;
 }
 ''',
 
